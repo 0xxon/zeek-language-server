@@ -1,4 +1,6 @@
+#[cfg(not(target_arch = "wasm32"))]
 use itertools::Itertools;
+#[cfg(not(target_arch = "wasm32"))]
 use std::{
     ffi::OsStr,
     path::{Path, PathBuf},
@@ -7,11 +9,16 @@ use std::{
     sync::LazyLock,
 };
 
+#[cfg(not(target_arch = "wasm32"))]
 use eyre::{Result, eyre};
+#[cfg(not(target_arch = "wasm32"))]
 use path_clean::PathClean;
+#[cfg(not(target_arch = "wasm32"))]
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+#[cfg(not(target_arch = "wasm32"))]
 use walkdir::WalkDir;
 
+#[cfg(not(target_arch = "wasm32"))]
 async fn zeek_config<I, S>(args: I) -> Result<std::process::Output>
 where
     I: IntoIterator<Item = S>,
@@ -24,6 +31,7 @@ where
         .map_err(|_| eyre!("zeek-config not found in PATH"))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Copy, Debug, Clone)]
 enum ZeekDir {
     Script,
@@ -31,6 +39,7 @@ enum ZeekDir {
     Site,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 async fn dir(dir: ZeekDir) -> Result<PathBuf> {
     let flag = match dir {
         ZeekDir::Script => "--script_dir",
@@ -48,6 +57,7 @@ async fn dir(dir: ZeekDir) -> Result<PathBuf> {
     Ok(dir.into())
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// Get all prefixes understood by Zeek.
 ///
 /// # Arguments
@@ -83,6 +93,7 @@ pub async fn prefixes(zeekpath: Option<String>) -> Result<impl Iterator<Item = P
     Ok(xs.into_iter().unique())
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug)]
 pub struct CheckResult {
     pub file: String,
@@ -91,12 +102,14 @@ pub struct CheckResult {
     pub kind: ErrorKind,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, PartialEq)]
 pub enum ErrorKind {
     Warning,
     Error,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// Check the file for with Zeek from the given directory.
 ///
 /// # Errors
@@ -143,6 +156,7 @@ pub async fn check<P1: AsRef<Path>, P2: AsRef<Path>>(
         .collect())
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, PartialEq)]
 pub struct SystemFile {
     /// Full path of the file.
@@ -152,6 +166,7 @@ pub struct SystemFile {
     prefix: PathBuf,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl SystemFile {
     #[must_use]
     pub fn new(path: PathBuf, prefix: PathBuf) -> Self {
@@ -159,6 +174,7 @@ impl SystemFile {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub async fn system_files() -> Result<impl Iterator<Item = SystemFile>> {
     Ok(prefixes(None).await?.flat_map(|dir| {
         WalkDir::new(dir.clone())
@@ -188,10 +204,12 @@ pub(crate) fn essential_input_files() -> impl Iterator<Item = &'static str> {
     .into_iter()
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) async fn has_format() -> bool {
     format("").await.is_ok()
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) async fn format(doc: &str) -> Result<String> {
     let mut fmt = tokio::process::Command::new("zeek-format")
         .stdin(Stdio::piped())
@@ -223,7 +241,7 @@ pub(crate) async fn format(doc: &str) -> Result<String> {
     Ok(buffer)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod test {
     #![allow(clippy::unwrap_used)]
 

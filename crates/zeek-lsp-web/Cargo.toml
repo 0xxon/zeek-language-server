@@ -1,0 +1,23 @@
+[package]
+name = "zeek-lsp-web"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wasm-bindgen = "0.2"
+js-sys = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", default-features = false, features = ["alloc"] }
+serde-wasm-bindgen = "0.6"
+zeek-language-server = { path = "../..", default-features = false }
+ls-types = { version = "0.0", default-features = false }
+smol_str = { version = "0.3", default-features = false, features = ["std"] }
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
+[lints.clippy]
+pedantic = "allow"

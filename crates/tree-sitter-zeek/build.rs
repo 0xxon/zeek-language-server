@@ -65,11 +65,22 @@ fn main() {
     // Compile tree-sitter C output.
     let parser_c = out_dir.join("parser.c");
 
-    Build::new()
-        .file(&parser_c)
-        .include(out_dir)
-        .warnings(false)
-        .compile("tree-sitter-zeek");
+    let mut build = Build::new();
+    build.file(&parser_c).include(&out_dir).warnings(false);
+
+    // For wasm32-unknown-unknown, add standard C headers from the Emscripten sysroot
+    // and compile with atomics/bulk-memory features so --shared-memory linking succeeds.
+    if std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("wasm32") {
+        let emscripten_include = std::env::var("EMSCRIPTEN_SYSROOT_INCLUDE")
+            .unwrap_or_else(|_| "/usr/share/emscripten/cache/sysroot/include".to_string());
+        build
+            .include(emscripten_include)
+            .flag("-matomics")
+            .flag("-mbulk-memory")
+            .flag("-mmutable-globals");
+    }
+
+    build.compile("tree-sitter-zeek");
 
     generate_keywords(&parser_c);
 }

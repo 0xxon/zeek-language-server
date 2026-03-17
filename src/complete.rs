@@ -10,14 +10,14 @@ use crate::{
 };
 
 use itertools::Itertools;
-use tower_lsp_server::ls_types::{
+use ls_types::{
     CompletionItem, CompletionItemKind, CompletionItemLabelDetails, CompletionParams,
     CompletionResponse, Documentation, InsertTextFormat, MarkupContent, MarkupKind, Position, Uri,
 };
 use tree_sitter_zeek::KEYWORDS;
 
 #[allow(clippy::too_many_lines)]
-pub(crate) fn complete(state: &Database, params: CompletionParams) -> Option<CompletionResponse> {
+pub fn complete(state: &Database, params: CompletionParams) -> Option<CompletionResponse> {
     let uri = Arc::new(params.text_document_position.text_document.uri);
     let position = params.text_document_position.position;
 
@@ -256,7 +256,7 @@ fn complete_from_decls(state: &Database, uri: Arc<Uri>, kind: &str) -> Vec<Compl
         .chain(implicit_decls.iter())
         .chain(explicit_decls_recursive.iter())
         .filter(|d| match &d.kind {
-            DeclKind::EventDecl(_) => kind == "event",
+            DeclKind::EventDecl(_) | DeclKind::EventDef(_) => kind == "event",
             DeclKind::FuncDecl(_) => kind == "function",
             DeclKind::HookDecl(_) => kind == "hook",
             _ => false,
@@ -265,7 +265,7 @@ fn complete_from_decls(state: &Database, uri: Arc<Uri>, kind: &str) -> Vec<Compl
         .filter_map(|d| {
             let item = to_completion_item(d);
             let signature = match &d.kind {
-                DeclKind::EventDecl(s) | DeclKind::FuncDecl(s) | DeclKind::HookDecl(s) => Some(
+                DeclKind::EventDecl(s) | DeclKind::EventDef(s) | DeclKind::FuncDecl(s) | DeclKind::HookDecl(s) => Some(
                     s.args
                         .iter()
                         .filter_map(|d| {
@@ -695,7 +695,7 @@ mod test {
     #![allow(clippy::unwrap_used)]
 
     use insta::assert_debug_snapshot;
-    use tower_lsp_server::ls_types::{
+    use ls_types::{
         CompletionContext, CompletionItem, CompletionItemKind, CompletionParams,
         CompletionResponse, CompletionTriggerKind, Documentation, PartialResultParams, Position,
         TextDocumentIdentifier, TextDocumentPositionParams, Uri, WorkDoneProgressParams,

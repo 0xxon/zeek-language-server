@@ -25,6 +25,7 @@ eyre = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }
 line-index = { workspace = true }
+ls-types = { workspace = true }
 opentelemetry = { workspace = true, optional = true }
 opentelemetry-otlp = { workspace = true, optional = true }
 opentelemetry-semantic-conventions = { workspace = true }
@@ -39,12 +40,8 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 smol_str = { workspace = true }
 streaming-iterator = { workspace = true }
-tokio = { workspace = true }
-tower-lsp-server = { workspace = true }
 tracing = { workspace = true }
-tracing-appender = { workspace = true }
 tracing-opentelemetry = { workspace = true, optional = true }
-tracing-subscriber = { workspace = true }
 tree-sitter = { workspace = true }
 tree-sitter-bash = { workspace = true }
 tree-sitter-btest = { workspace = true }
@@ -54,10 +51,16 @@ tree-sitter-regex = { workspace = true }
 tree-sitter-rst = { workspace = true }
 tree-sitter-zeek = { path = "crates/tree-sitter-zeek" }
 ustr = "1.1.0"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "process", "fs"] }
+tower-lsp-server = { workspace = true, features = ["runtime-tokio"] }
+tracing-appender = { workspace = true }
+tracing-subscriber = { workspace = true }
 walkdir = { workspace = true }
 
 [workspace]
-members = [".", "crates/tree-sitter-zeek"]
+members = [".", "crates/tree-sitter-zeek", "crates/zeek-lsp-web"]
 
 [workspace.dependencies]
 cc = "1.2.57"
@@ -67,6 +70,7 @@ eyre = { default-features = false, version = "0.6.12", features = ["auto-install
 futures = { default-features = false, version = "0.3.32" }
 itertools = "0.14.0"
 line-index = { version = "0.1.2", default-features = false }
+ls-types = { version = "0.0", default-features = false }
 opentelemetry = { version = "0.26.0", features = ["trace"] }
 opentelemetry-otlp = { version = "0.26.0", features = ["grpc-tonic", "trace"], default-features = false }
 opentelemetry-semantic-conventions = { version = "0.31.0", default-features = false }
@@ -81,8 +85,8 @@ serde = { version = "1.0.228", default-features = false }
 serde_json = { default-features = false, version = "1.0.149" }
 smol_str = { version = "0.3.6", default-features = false, features = ["std"] }
 streaming-iterator = { version = "0.1.9", default-features = false }
-tokio = { version = "1.50.0", features = ["fs", "io-std", "io-util", "rt-multi-thread", "process", "macros", "sync"], default-features = false }
-tower-lsp-server = { version = "0.23.0", features = ["runtime-tokio"], default-features = false }
+tokio = { version = "1.50.0", features = ["rt", "io-std", "io-util", "macros", "sync"], default-features = false }
+tower-lsp-server = { version = "0.23.0", default-features = false }
 tracing = { features = ["attributes"], default-features = false, version = "0.1.44" }
 tracing-appender = { version = "0.2.4", default-features = false }
 tracing-opentelemetry = { version = "0.27.0" }

@@ -13,6 +13,8 @@ use rustc_hash::FxHashSet;
 use salsa::ParallelDatabase;
 use serde::Deserialize;
 use std::{fmt::Debug, path::PathBuf, sync::Arc};
+use ls_types::{Hover, HoverContents, LanguageString, MarkedString, Position, Range, Uri};
+#[cfg(not(target_arch = "wasm32"))]
 use tower_lsp_server::{
     LanguageServer, LspService, Server,
     jsonrpc::{Error, Result},
@@ -24,17 +26,17 @@ use tower_lsp_server::{
         DidSaveTextDocumentParams, DocumentFormattingParams, DocumentRangeFormattingParams,
         DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, FileChangeType, FileEvent,
         FoldingRange, FoldingRangeParams, FoldingRangeProviderCapability, GotoDefinitionParams,
-        GotoDefinitionResponse, Hover, HoverContents, HoverParams, HoverProviderCapability,
+        GotoDefinitionResponse, HoverParams, HoverProviderCapability,
         ImplementationProviderCapability, InitializeParams, InitializeResult, InitializedParams,
         InlayHint, InlayHintKind, InlayHintLabel, InlayHintParams, InlayHintTooltip,
-        LanguageString, Location, MarkedString, MarkupContent, MarkupKind, MessageType,
-        NumberOrString, OneOf, ParameterInformation, ParameterLabel, Position, ProgressParams,
-        ProgressParamsValue, ProgressToken, Range, ReferenceParams, RenameParams,
+        Location, MarkupContent, MarkupKind, MessageType,
+        NumberOrString, OneOf, ParameterInformation, ParameterLabel, ProgressParams,
+        ProgressParamsValue, ProgressToken, ReferenceParams, RenameParams,
         SemanticTokensFullOptions, SemanticTokensOptions, SemanticTokensParams,
         SemanticTokensResult, SemanticTokensServerCapabilities, ServerCapabilities, ServerInfo,
         SignatureHelp, SignatureHelpOptions, SignatureHelpParams, SignatureInformation,
         SymbolInformation, SymbolKind, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit,
-        Uri, WorkDoneProgress, WorkDoneProgressBegin, WorkDoneProgressCreateParams,
+        WorkDoneProgress, WorkDoneProgressBegin, WorkDoneProgressCreateParams,
         WorkDoneProgressEnd, WorkDoneProgressReport, WorkspaceEdit, WorkspaceSymbolParams,
         WorkspaceSymbolResponse,
         notification::Progress,
@@ -45,6 +47,7 @@ use tower_lsp_server::{
     },
 };
 use tracing::{error, instrument, trace_span, warn};
+#[cfg(not(target_arch = "wasm32"))]
 use walkdir::WalkDir;
 
 #[cfg(test)]
@@ -136,17 +139,20 @@ impl Debug for Database {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, Default)]
 pub struct Backend {
     pub client: Option<tower_lsp_server::Client>,
     state: tokio::sync::RwLock<Database>,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 enum ParseResult {
     Ok,
     HasDiagnostics,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Backend {
     async fn client_message<M>(&self, level: MessageType, message: M)
     where
@@ -371,6 +377,7 @@ impl Backend {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl LanguageServer for Backend {
     #[instrument]
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
@@ -1566,6 +1573,84 @@ fn fuzzy_search_symbol(db: &Database, symbol: &str) -> impl Iterator<Item = (f32
     })
 }
 
+/// Synchronous hover computation, callable from WASM or native code.
+pub fn hover_at(state: &Database, uri: Arc<Uri>, position: Position) -> Option<Hover> {
+    let source = state.source(Arc::clone(&uri))?;
+    let tree = state.parse(Arc::clone(&uri))?;
+    let node = tree.root_node();
+    let node = node.named_descendant_for_position(position)?;
+    let text = node.utf8_text(source.as_bytes()).ok()?;
+
+    let mut contents = Vec::new();
+
+    match node.kind() {
+        "id" => {
+            if let Some(decl) = &state.resolve(NodeLocation::from_node(Arc::clone(&uri), node)) {
+                let kind = match decl.kind {
+                    DeclKind::Global => "global",
+                    DeclKind::Option => "option",
+                    DeclKind::Const => "constant",
+                    DeclKind::Redef => "redef",
+                    DeclKind::RedefEnum(_) => "redef enum",
+                    DeclKind::RedefRecord(_) => "redef record",
+                    DeclKind::Enum(_) => "enum",
+                    DeclKind::Type(_) => "record",
+                    DeclKind::FuncDef(_) | DeclKind::FuncDecl(_) => "function",
+                    DeclKind::HookDef(_) | DeclKind::HookDecl(_) => "hook",
+                    DeclKind::EventDef(_) | DeclKind::EventDecl(_) => "event",
+                    DeclKind::Variable => "variable",
+                    DeclKind::Field(_) => "field",
+                    DeclKind::EnumMember => "enum member",
+                    DeclKind::Index(_, _) => "indexing result",
+                    DeclKind::Module => "module",
+                    DeclKind::Builtin(_) => "builtin",
+                };
+                contents.push(MarkedString::String(format!("### {kind} `{id}`", id = decl.fqid)));
+                if let Some(typ) = state.typ(Arc::clone(decl)) {
+                    contents.push(MarkedString::String(format!("Type: `{}`", typ.fqid)));
+                }
+                contents.push(MarkedString::String(decl.documentation.to_string()));
+            }
+        }
+        "file" => {
+            let file = std::path::PathBuf::from(text);
+            let resolved = load_to_file(
+                &file,
+                uri.as_ref(),
+                state.files().as_ref(),
+                state.prefixes().as_ref(),
+            );
+            if let Some(resolved) = resolved {
+                contents.push(MarkedString::String(format!("`{}`", resolved.path())));
+            }
+        }
+        "comment_body" => {
+            let try_update = |contents: &mut Vec<_>| {
+                let symbol = word_at_position(&source, position)?;
+                if let Some(docs) = fuzzy_search_symbol(state, &symbol)
+                    .filter(|(_, d)| !matches!(d.kind, DeclKind::EventDef(_)))
+                    .sorted_by(|(r1, _), (r2, _)| r1.total_cmp(r2))
+                    .next_back()
+                    .map(|(_, d)| d.documentation.to_string())
+                {
+                    contents.push(MarkedString::String(docs));
+                }
+                Some(())
+            };
+            try_update(&mut contents);
+        }
+        _ => {}
+    }
+
+    let hover = Hover {
+        contents: HoverContents::Array(contents),
+        range: Some(node.range()),
+    };
+
+    Some(hover)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 fn to_symbol_kind(kind: &DeclKind) -> SymbolKind {
     match kind {
         DeclKind::Global | DeclKind::Variable | DeclKind::Redef | DeclKind::Index(_, _) => {
@@ -1585,6 +1670,7 @@ fn to_symbol_kind(kind: &DeclKind) -> SymbolKind {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub async fn run() {
     let (service, socket) = LspService::new(|client| Backend {
         client: Some(client),
@@ -1656,9 +1742,11 @@ impl InitializationOptions {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 const ERROR_CODE_IS_MISSING: i32 = 1;
 
 /// Extracts all errors in a AST.
+#[cfg(not(target_arch = "wasm32"))]
 fn tree_diagnostics(tree: &query::Node) -> impl Iterator<Item = Diagnostic> {
     tree.errors().map(|err| {
         let code = if err.is_missing() {
@@ -1680,6 +1768,7 @@ fn tree_diagnostics(tree: &query::Node) -> impl Iterator<Item = Diagnostic> {
     })
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 async fn references(db: &Database, decl: Arc<Decl>) -> FxHashSet<NodeLocation> {
     /// Helper to compute all sources reachable from a given file.
     fn all_sources(f: Arc<Uri>, db: &Database) -> FxHashSet<Arc<Uri>> {
@@ -1755,6 +1844,7 @@ async fn references(db: &Database, decl: Arc<Decl>) -> FxHashSet<NodeLocation> {
         .collect()
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 mod semantic_tokens {
     use std::sync::LazyLock;
 
@@ -2010,7 +2100,7 @@ mod semantic_tokens {
     #[cfg(test)]
     mod test {
         use insta::assert_debug_snapshot;
-        use tower_lsp_server::ls_types::{Position, SemanticToken, SemanticTokenType};
+        use ls_types::{Position, SemanticToken, SemanticTokenType};
 
         use crate::lsp::semantic_tokens::{highlight, legend};
 
@@ -2080,6 +2170,7 @@ mod semantic_tokens {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 const RST_HIGHLIGHT: &str = "
 (literal) @macro
 
